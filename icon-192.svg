@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="36" fill="#1A1A18"/>
+  <rect x="16" y="16" width="160" height="160" rx="28" fill="#C8451A"/>
+  <!-- Letra C estilizada -->
+  <path d="M118 68 C118 68 96 56 76 68 C56 80 56 112 76 124 C96 136 118 124 118 124"
+        stroke="white" stroke-width="14" stroke-linecap="round" fill="none"/>
+  <!-- Punto decorativo -->
+  <circle cx="120" cy="68" r="7" fill="white"/>
+  <circle cx="120" cy="124" r="7" fill="white"/>
+</svg>
