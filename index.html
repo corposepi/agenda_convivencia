@@ -752,6 +752,7 @@ let STATE = {
   acuerdosNueva: [],
   firmantesNueva: [],
   actaActual: null,
+  _editandoBorrador: null,  // id del borrador en edición
 };
 
 // LocalStorage fallback
@@ -928,16 +929,19 @@ function renderRItem(r, clickable=true){
   const dia = d.getDate().toString().padStart(2,'0');
   const mes = d.toLocaleString('es',{month:'short'}).toUpperCase();
   const tipos = {ordinaria:'Ordinaria',convivencia:'Convivencia',seguimiento:'Seguimiento',acudientes:'Con acudientes',emergencia:'Urgente'};
-  return `<div class="reunion-item${clickable?' cursor-pointer':''}" ${clickable?`onclick="verReunion('${r.id}')"`:''}">
+  const esBorrador = !r.actaGenerada;
+  return `<div class="reunion-item" style="${clickable?'cursor:pointer':''}" ${clickable && !esBorrador?`onclick="verReunion('${r.id}')"`:''}">
     <div class="reunion-fecha"><div class="r-dia">${dia}</div><div class="r-mes">${mes}</div></div>
-    <div class="reunion-info">
+    <div class="reunion-info" style="flex:1">
       <h4>${tipos[r.tipo]||r.tipo} — ${GRUPOS[STATE.grupo]?.nombre||''}</h4>
       <p>${r.facilitador||''} · ${r.participantes||''}</p>
-      <div class="tags">
-        ${!r.actaGenerada?'<span class="badge borrador">📝 Borrador</span>':''}
+      <div class="tags" style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        ${esBorrador?'<span class="badge borrador">📝 Borrador</span>':''}
         ${r.acuerdos?.length?`<span class="badge brand">${r.acuerdos.length} acuerdo${r.acuerdos.length>1?'s':''}</span>`:''}
         ${r.actaGenerada?'<span class="badge verde">✓ Acta</span>':''}
         ${r.firmas?.filter(f=>f.data).length?`<span class="badge azul">✍️ ${r.firmas.filter(f=>f.data).length} firma${r.firmas.filter(f=>f.data).length>1?'s':''}</span>`:''}
+        ${esBorrador && clickable?`<button class="btn btn-secondary btn-sm" onclick="cargarBorradorEnForm('${r.id}')" style="margin-left:4px">✏️ Editar</button>`:''}
+        ${esBorrador && clickable?`<button class="btn btn-primary btn-sm" onclick="verReunion('${r.id}')">Ver / Formalizar</button>`:''}
       </div>
     </div>
   </div>`;
@@ -996,6 +1000,7 @@ function renderAcuerdosForm(){
   `).join('');
 }
 function eliminarAcuerdo(i){ STATE.acuerdosNueva.splice(i,1); renderAcuerdosForm(); }
+function eliminarFirmante(i){ STATE.firmantesNueva.splice(i,1); renderFirmasForm(); }
 
 // ══════════════════════════════════════
 //  FIRMANTES Y CANVAS
@@ -1022,8 +1027,9 @@ function renderFirmasForm(){
         <canvas id="fc-${i}" style="cursor:crosshair;display:block;width:100%;height:90px;touch-action:none"></canvas>
       </div>
       <div class="firma-actions">
-        <button class="btn-firma-clear" onclick="clearFirma(${i})">Borrar</button>
-        <button class="btn-firma-clear" onclick="toggleNombreFirma(${i})" style="background:var(--brand-l);color:var(--brand)">Escribir nombre</button>
+        <button class="btn-firma-clear" onclick="clearFirma(${i})">Borrar firma</button>
+        <button class="btn-firma-clear" onclick="toggleNombreFirma(${i})" style="background:var(--brand-l);color:var(--brand)">Nombre</button>
+        <button class="btn-firma-clear" onclick="eliminarFirmante(${i})" style="background:#FFF0F0;color:#C0392B">✕ Quitar</button>
       </div>
     </div>
   `).join('');
@@ -1106,6 +1112,9 @@ async function guardarReunion(generarActa){
   const fecha = document.getElementById('nr-fecha').value;
   if(!fecha){ showToast('Indica la fecha de la reunión','error'); return; }
 
+  const esEdicion = !!STATE._editandoBorrador;
+  const existing  = esEdicion ? STATE.reuniones.find(x=>x.id===STATE._editandoBorrador) : null;
+
   const reunion = {
     fecha, hora: document.getElementById('nr-hora').value,
     tipo: document.getElementById('nr-tipo').value,
@@ -1121,21 +1130,43 @@ async function guardarReunion(generarActa){
     firmas: STATE.firmantesNueva.map(f=>({...f})),
     actaGenerada: generarActa,
     grupo: STATE.grupo,
-    creadoEn: new Date().toISOString(),
-    numActa: 'A-'+(STATE.reuniones.length+1).toString().padStart(3,'0')+'-'+new Date().getFullYear()
+    creadoEn: existing?.creadoEn || new Date().toISOString(),
+    numActa: existing?.numActa || 'A-'+(STATE.reuniones.length+1).toString().padStart(3,'0')+'-'+new Date().getFullYear()
   };
 
-  const id = await guardarEnDB(reunion);
-  reunion.id = id;
+  let finalId;
+  if(esEdicion){
+    // Actualizar borrador existente
+    reunion.id = STATE._editandoBorrador;
+    if(window._firebaseOk && window._db){
+      try{
+        const dbr = window._dbRef(window._db, `agenda/${STATE.grupo}/reuniones/${STATE._editandoBorrador}`);
+        await window._dbSet(dbr, reunion);
+      } catch(e){ console.warn('Firebase update failed'); }
+    }
+    const idx = STATE.reuniones.findIndex(x=>x.id===STATE._editandoBorrador);
+    if(idx>=0) STATE.reuniones[idx] = reunion;
+    else STATE.reuniones.unshift(reunion);
+    lsSave('reuniones', STATE.reuniones);
+    finalId = STATE._editandoBorrador;
+  } else {
+    finalId = await guardarEnDB(reunion);
+    reunion.id = finalId;
+  }
 
-  // Limpiar form
-  STATE.acuerdosNueva=[];
-  STATE.firmantesNueva=[];
+  // Restaurar título del formulario
+  const titulo = document.querySelector('#view-nueva .content-header h2');
+  if(titulo) titulo.textContent = 'Nueva reunión';
+
+  // Limpiar form y estado de edición
+  STATE.acuerdosNueva=[]; STATE.firmantesNueva=[]; STATE._editandoBorrador=null;
   renderAcuerdosForm();
   document.getElementById('firmas-grid').innerHTML='';
   ['nr-hora','nr-facilitador','nr-participantes','nr-apertura','nr-seguimiento','nr-temas','nr-proxima','nr-responsable','nr-obs'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('nr-fecha').value = new Date().toISOString().split('T')[0];
 
-  showToast(generarActa?'Reunión guardada y acta generada ✓':'Borrador guardado ✓','success');
+  renderDashboard(); renderListaReuniones(); renderActas(); renderHistorial();
+  showToast(generarActa?'Acta generada y guardada ✓':(esEdicion?'Borrador actualizado ✓':'Borrador guardado ✓'),'success');
 
   if(generarActa){
     STATE.actaActual = reunion;
@@ -1272,6 +1303,42 @@ async function formalizarBorrador(id){
   renderActas(); renderListaReuniones(); renderHistorial();
   mostrarActa(r);
   showToast('¡Acta formalizada correctamente!','success');
+}
+
+// ══════════════════════════════════════
+//  EDITAR BORRADOR — carga datos al formulario
+// ══════════════════════════════════════
+function cargarBorradorEnForm(id){
+  const r = STATE.reuniones.find(x=>x.id===id);
+  if(!r){ showToast('Borrador no encontrado','error'); return; }
+
+  STATE._editandoBorrador = id;
+  STATE.acuerdosNueva    = (r.acuerdos||[]).map(a=>({...a}));
+  STATE.firmantesNueva   = (r.firmas||[]).map(f=>({...f}));
+
+  // Llenar campos del formulario
+  const set = (id,v)=>{ const el=document.getElementById(id); if(el) el.value=v||''; };
+  set('nr-fecha',       r.fecha);
+  set('nr-hora',        r.hora);
+  set('nr-tipo',        r.tipo);
+  set('nr-facilitador', r.facilitador);
+  set('nr-participantes',r.participantes);
+  set('nr-apertura',    r.apertura);
+  set('nr-seguimiento', r.seguimiento);
+  set('nr-temas',       r.temas);
+  set('nr-proxima',     r.proxima);
+  set('nr-responsable', r.responsable);
+  set('nr-obs',         r.observaciones);
+
+  renderAcuerdosForm();
+  renderFirmasForm();
+
+  // Indicar visualmente que es edición
+  const titulo = document.querySelector('#view-nueva .content-header h2');
+  if(titulo) titulo.textContent = '✏️ Editando borrador';
+
+  showView('nueva');
+  showToast('Borrador cargado — edita y guarda cuando estés listo','success');
 }
 
 // ══════════════════════════════════════
