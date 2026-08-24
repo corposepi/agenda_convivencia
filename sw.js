@@ -1,4 +1,4 @@
-const CACHE = 'corposepi-convivencia-v1';
+const CACHE = 'corposepi-convivencia-v3';
 const ASSETS = [
   '/agenda_convivencia/',
   '/agenda_convivencia/index.html',
