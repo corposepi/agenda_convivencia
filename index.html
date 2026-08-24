@@ -712,8 +712,6 @@ input,textarea,select{font-family:'DM Sans',sans-serif}
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { getDatabase, ref, push, set, get, onValue, serverTimestamp }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
-import { getAuth, signInAnonymously }
-  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyARjZP37yHcNRtIFWXarSVvYJ4ZOChuZ54",
@@ -729,7 +727,6 @@ let db;
 try {
   const app = initializeApp(firebaseConfig);
   db = getDatabase(app);
-  signInAnonymously(getAuth(app)).catch(e=>console.error('Auth anónima:',e));
   window._db = db;
   window._dbRef = ref;
   window._dbPush = push;
